@@ -4,15 +4,15 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <math.h>
-#define Y_PIXELS 200
-#define X_PIXELS 400
+#define Y_PIXELS 180
+#define X_PIXELS 900
 #define X_BLOCKS 20
 #define Y_BLOCKS 20
 #define Z_BLOCKS 10
 #define VIEW_HEIGHT 0.5
 #define VIEW_WIDTH 0.5
-#define BLOCK_BORDER_SIZE 0.5
-
+#define BLOCK_BORDER_SIZE 0.05
+#define EYE_HEIGHT 1.5
 
 static struct termios old_termios, new_termios;
 
@@ -36,9 +36,9 @@ typedef struct Vector_vector2 {
 void init_terminal(){
     tcgetattr(STDIN_FILENO, &old_termios);
     new_termios = old_termios;
-    new_termios.c_lflag &= ~(ICANON | ECHO);
+    new_termios.c_lflag &= ~(ICANON | ECHO | ISIG);
     tcsetattr(STDIN_FILENO, TCSANOW, &new_termios);
-    fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
+    fcntl(STDIN_FILENO, F_SETFL, fcntl(STDIN_FILENO, F_GETFL, 0) | O_NONBLOCK);
     fflush(stdout);
 
 }
@@ -59,11 +59,10 @@ void  process_input(){
     }
 
     while(read(STDIN_FILENO, &c, 1) > 0){
-       // printf("\ninput : %c", c);
+        //printf("\ninput : %c", c);
         unsigned char uc = (unsigned char)c;
         keystate[uc] = 1;
     }
-    
 }
 
 int is_key_pressed(char key){
@@ -72,17 +71,14 @@ int is_key_pressed(char key){
 
 char ** init_picture(){
     char ** picture = malloc(sizeof(char*) * Y_PIXELS);
-
     for(int i = 0; i < Y_PIXELS; i++){
-        picture[i] = malloc(sizeof(char)* X_PIXELS);
+        picture[i] = malloc(sizeof(char)  * X_PIXELS);
     }
-
     return picture;
 }
 
 
 char *** init_blocks(){
-
     char *** blocks = malloc(sizeof(char **) * Z_BLOCKS);
     for(int i = 0; i < Z_BLOCKS; i++){
         blocks[i] = malloc(sizeof(char*) * Y_BLOCKS);
@@ -91,11 +87,8 @@ char *** init_blocks(){
             for(int k = 0; k < X_BLOCKS; k++){
                 blocks[i][j][k] = ' ';
             }
-
         }
     }
-
-
     return blocks;
 }
 
@@ -109,8 +102,6 @@ player_pos_view init_posview(){
     posview.view.psi = 0;
 
     return posview;
-
-
 }
 
 vect angles_to_vect(vect2 angles){
@@ -223,13 +214,13 @@ float min(float a, float b){
 }
 
 char raytrace(vect pos, vect dir, char*** blocks){
-    float eps = 0.02;
+    float eps = 0.01;
     float dist = 2;
     while(!ray_outside(pos)){
         char c = blocks[(int)pos.z][(int)pos.y][(int)pos.x];
         if(c != ' '){
             if(on_block_border(pos)){
-                return '.';
+                return '-';
             }else {
                 return c;
             }
@@ -268,29 +259,173 @@ void get_picture(char ** picture, player_pos_view posview, char *** blocks){
         }
     }
 
+    for(int i = 0; i < Y_PIXELS; i++){
+        free(directions[i]);
+    }
+    free(directions);
 }
 
 void draw_ascii(char ** picture){
-
     fflush(stdout);
+    printf("\033[H\033[2J");
     for(int i = 0; i < Y_PIXELS; i++){
+        int current_color = 0;
+
         for(int j = 0; j < X_PIXELS; j++){
-            printf("%c", picture[i][j]);
+           // printf("%c", picture[i][j]);
+           if(picture[i][j] == 'o' && current_color != 32){
+            printf("\x1B[32m");
+            current_color = 32;
+           }else if(picture[i][j] != 'o' && current_color != 0){
+            printf("\x1B[0m");
+            current_color = 0;
+           }
+           printf("%c", picture[i][j]);
         }
-        printf("\n");
+        printf("\x1B[0m\n");    }
+}
+
+void update_pos_view(player_pos_view * poseview, char *** blocks){
+    float move_eps = 0.30;
+    float tilt_eps = 0.1;
+    int x = (int)poseview->pos.x, y = (int)poseview->pos.y;
+
+    int z = (int)(poseview->pos.z - EYE_HEIGHT + 0.01);
+    if(z >= 0 && z < Z_BLOCKS && x >= 0 && x < X_BLOCKS && y >= 0 && y < Y_BLOCKS){
+        if(blocks[z][y][x] != ' '){
+            poseview->pos.z += 1;
+        }
+    }
+    z = (int)(poseview->pos.z - EYE_HEIGHT - 0.01);
+
+    if(z >= 0 && z < Z_BLOCKS && x >= 0 && x < X_BLOCKS && y >= 0 && y < Y_BLOCKS){
+        if(blocks[z][y][x] == ' '){
+            poseview->pos.z -= 1;
+        }
     }
 
+    if(is_key_pressed('z')){
+        poseview->view.psi += tilt_eps;
+    }
+    if(is_key_pressed('s')){
+        poseview->view.psi -= tilt_eps;
+    }
+    if(is_key_pressed('d')){
+        poseview->view.phi += tilt_eps;
+    }
+    if(is_key_pressed('a')){
+        poseview->view.phi -= tilt_eps;
+    }
+    vect direction = angles_to_vect(poseview->view);
+    if(is_key_pressed('i')){
+        poseview->pos.x += move_eps * direction.x;
+        poseview->pos.y += move_eps * direction.y;
+    }
+    if(is_key_pressed('l')){
+        poseview->pos.x -= move_eps * direction.x;
+        poseview->pos.y -= move_eps * direction.y;
+    }
+    if(is_key_pressed('j')){
+        poseview->pos.x += move_eps * direction.x;
+        poseview->pos.y -= move_eps * direction.y;
+    }
+    if(is_key_pressed('k')){
+        poseview->pos.x -= move_eps * direction.x;
+        poseview->pos.y += move_eps * direction.y;
+    }
 }
+
+vect get_current_block(player_pos_view poseview, char*** blocks){
+    vect pos = poseview.pos;
+    vect dir = angles_to_vect(poseview.view);
+    float eps = 0.01;
+    float dist = 2;
+    while(!ray_outside(pos)){
+        char c = blocks[(int)pos.z][(int)pos.y][(int)pos.x];
+        if(c != ' '){
+            return pos;
+        }
+        if(dir.x > eps){
+            dist = min(dist, ((int)(pos.x + 1) - pos.x) / dir.x);
+        }else if(dir.x < -eps){
+            dist = min(dist, ((int)pos.x - pos.x)/ dir.x);
+        }
+        if(dir.y > eps){
+            dist = min(dist, ((int)(pos.y + 1) - pos.y) / dir.y);
+        }else if(dir.y < -eps){
+            dist = min(dist, ((int)pos.y - pos.y)/ dir.y);
+        }
+        if(dir.z > eps){
+            dist = min(dist, ((int)(pos.z + 1) - pos.z) / dir.z);
+        }else if(dir.z < -eps){
+            dist = min(dist, ((int)pos.z - pos.z)/ dir.z);
+        }
+        pos = vect_add(pos, vect_scale(dist + eps, dir));
+    }
+    return pos;
+}
+
+void place_block(vect pos, char *** blocks, char block){
+    int x = (int) pos.x, y = (int) pos.y, z = (int) pos.z;
+    int min = 0;
+    float dists[6];
+
+    dists[0] = fabsf(x + 1 - pos.x);
+    dists[1] = fabsf(pos.x - x);
+    dists[2] = fabsf(y + 1 - pos.y);
+    dists[3] = fabsf(pos.y - y);
+    dists[4] = fabsf(z + 1 - pos.z);
+    dists[5] = fabsf(pos.z - z);
+
+    float mindist = dists[0];
+    for(int i = 1; i < 6; i++){
+        if(dists[i] < mindist){
+            mindist = dists[i];
+            min = i;
+        }
+    }
+
+    switch (min) {
+        case 0:
+            if(x + 1 < X_BLOCKS)
+                blocks[z][y][x + 1] = block;
+            break;
+        case 1:
+            if(x - 1 >= 0)
+                blocks[z][y][x - 1] = block;
+            break;
+        case 2:
+            if(y + 1 < Y_BLOCKS)
+                blocks[z][y + 1][x] = block;
+            break;
+        case 3:
+            if(y - 1 >= 0)
+                blocks[z][y - 1][x] = block;
+            break;
+        case 4:
+            if(z + 1 < Z_BLOCKS)
+                blocks[z + 1][y][x] = block;
+            break;
+        case 5:
+            if(z - 1 >= 0)
+                blocks[z - 1][y][x] = block;
+            break;
+        default:
+            break;
+    }
+}
+
 int main(){
 
     init_terminal();
     char ** picture = init_picture();
     char *** blocks = init_blocks();
+    char current_block_c;
+
     for(int x = 0; x < X_BLOCKS; x++){
         for(int y = 0; y < Y_BLOCKS; y++){
-            for(int z = 0; z < Z_BLOCKS; z++){
-                blocks[z][y][x] = '@';
-            }
+            blocks[0][y][x] = '@';
+            blocks[1][y][x] = '@';
         }
     }
     player_pos_view posview = init_posview();
@@ -300,9 +435,35 @@ int main(){
         if(is_key_pressed('q')){
             exit(0);
         }
-        get_picture(picture, posview, blocks);
+        update_pos_view(&posview, blocks); 
+        vect current_block = get_current_block(posview, blocks);
+        int have_current_block = !ray_outside(current_block);
+        int current_block_x = current_block.x;
+        int current_block_y = current_block.y;
+        int current_block_z = current_block.z;
+        char current_block_c;
+        int removed = 0;
+        if(have_current_block){
+            current_block_c = blocks[current_block_z][current_block_y][current_block_x];
+            blocks[current_block_z][current_block_y][current_block_x] = 'o';
 
-        draw_ascii(picture);
+            if(is_key_pressed('x')){
+                removed = 1;
+                blocks[current_block_z][current_block_y][current_block_x] = ' ';
+
+            }
+
+            if(is_key_pressed(' ')){
+                place_block(current_block, blocks, '@');
+            }
+        }
+
+        get_picture(picture, posview, blocks);
+        if(have_current_block){
+            blocks[current_block_z][current_block_y][current_block_x] = current_block_c;
+        }
+        draw_ascii(picture); 
+        usleep(5000);
     }
     restore_terminal();
     return 0;
