@@ -449,7 +449,6 @@ int main(){
             if(is_key_pressed('x')){
                 removed = 1;
                 blocks[current_block_z][current_block_y][current_block_x] = ' ';
-
             }
 
             if(is_key_pressed(' ')){
