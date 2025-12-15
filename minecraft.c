@@ -4,8 +4,8 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <math.h>
-#define Y_PIXELS 180
-#define X_PIXELS 900
+#define Y_PIXELS 60
+#define X_PIXELS 200
 #define X_BLOCKS 20
 #define Y_BLOCKS 20
 #define Z_BLOCKS 10
@@ -40,7 +40,6 @@ void init_terminal(){
     tcsetattr(STDIN_FILENO, TCSANOW, &new_termios);
     fcntl(STDIN_FILENO, F_SETFL, fcntl(STDIN_FILENO, F_GETFL, 0) | O_NONBLOCK);
     fflush(stdout);
-
 }
 
 void restore_terminal(){
